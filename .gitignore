@@ -1,4 +1,9 @@
-node_modules
-.idea
-.vscode
-dist
+# Sensitive credentials
+*.key.pem
+*.key
+config.py
+.env
+.env.local
+secrets/
+__pycache__/
+*.pyc
