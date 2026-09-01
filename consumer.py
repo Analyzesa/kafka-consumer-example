@@ -3,32 +3,38 @@
 
 import uuid
 import base58
+import os
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from google.protobuf.message import DecodeError
 from google.protobuf.descriptor import FieldDescriptor
 from solana import parsed_idl_block_message_pb2
 import logging
-import config
 import datetime
 import threading
 import signal
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Kafka consumer configuration
 group_id_suffix = uuid.uuid4().hex
 conf = {
     'bootstrap.servers': 'rpk0.bitquery.io:9092,rpk1.bitquery.io:9092,rpk2.bitquery.io:9092',
-    'group.id': f'{config.username}-group-{group_id_suffix}',  
+    'group.id': f'{os.getenv("KAFKA_USERNAME")}-group-{group_id_suffix}',
     'session.timeout.ms': 30000,
-    'security.protocol': 'SASL_PLAINTEXT',
-    'ssl.endpoint.identification.algorithm': 'none',
+    'security.protocol': 'SASL_SSL',
+    'ssl.ca.location': 'server.cer.pem',
+    'ssl.certificate.location': 'client.cer.pem',
+    'ssl.key.location': 'client.key.pem',
     'sasl.mechanisms': 'SCRAM-SHA-512',
-    'sasl.username': config.username,
-    'sasl.password': config.password,
+    'sasl.username': os.getenv('KAFKA_USERNAME'),
+    'sasl.password': os.getenv('KAFKA_PASSWORD'),
     'auto.offset.reset': 'latest',
 }
 
 consumer = Consumer(conf)
-topic = 'solana.transactions.proto' 
+topic = 'solana.transactions.proto'
 consumer.subscribe([topic])
 
 # Control flag for graceful shutdown
@@ -92,10 +98,9 @@ def process_message(buffer):
 
         timestamp = datetime.datetime.now(datetime.timezone.utc)
 
-
         print(f"\n Block: {tx_block.Header.Slot} | Time: {timestamp}")
-                
-         # print_protobuf_message(tx_block, encoding='base58') # uncomment this to print the message
+
+        # print_protobuf_message(tx_block, encoding='base58') # uncomment this to print the message
 
     except DecodeError as err:
         logger.error(f"Protobuf decoding error: {err}")
@@ -114,14 +119,14 @@ def main():
     # Set up signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     # Main thread: Kafka polling loop
     try:
         while not shutdown_event.is_set():
             msg = consumer.poll(timeout=1.0)
             if msg is None:
                 continue
-                
+
             if msg.error():
                 if msg.error().code() == KafkaError._PARTITION_EOF:
                     continue
@@ -132,8 +137,8 @@ def main():
                 processed_count += 1
             except Exception as err:
                 logger.exception(f"Failed to process message: {err}")
-               
-                
+
+
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")
     except Exception as e:
